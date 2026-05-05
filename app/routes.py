@@ -1,0 +1,123 @@
+
+from fastapi import APIRouter, Depends, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
+from app.database import get_db
+from app.schemas import (
+    RegistroInput, LoginInput, AuthResponse,
+    PagamentoInput, PagamentoResponse, HistoricoResponse, SaldoResponse
+)
+from app.auth import usuario_logado
+from app.models import Usuario
+from app.cache import get_cache, set_cache
+from app.idempotency import checar_idempotencia, salvar_idempotencia
+from app.rate_limiter import limite_por_usuario, limite_por_ip
+from app import services
+
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+class Database:
+    def connect(self):
+        logger.info("Conectando ao banco...")
+
+router = APIRouter()
+
+# ─── Auth ─────────────────────────────────────────
+@router.post("/auth/registro", response_model=AuthResponse, status_code=201)
+async def registro(
+    dados: RegistroInput,
+    db: AsyncSession = Depends(get_db)
+):
+    return await services.registrar_usuario(dados, db)
+
+@router.post("/auth/login", response_model=AuthResponse)
+async def login(
+    dados: LoginInput,
+    db: AsyncSession = Depends(get_db),
+    _rl= Depends(limite_por_ip(limite=10, janela_segundos=60))
+):
+    return await services.autenticar_usuario(dados.email, dados.senha, db)
+
+# ─── Pagamentos ───────────────────────────────────
+@router.post("/pagamentos", response_model=PagamentoResponse, status_code=201)
+async def criar_pagamento(
+    dados: PagamentoInput,
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(usuario_logado),
+    _rl= Depends(limite_por_usuario(limite=60)),
+    idempotency_key: Optional[str] = Header(None)
+):
+    if not idempotency_key:
+        from fastapi import HTTPException
+        raise  HTTPException(
+            status_code=400,
+            detail="Header Idempotency_key obrigatório"
+        )
+    
+    resultado_anterior = await checar_idempotencia(idempotency_key)
+    if resultado_anterior:
+        return resultado_anterior
+    
+    pagamento = await services.criar_pagamento(dados, usuario.id, db)
+
+    resultado = PagamentoResponse.model_validate(pagamento).model_dump(mode="json")
+    await salvar_idempotencia(idempotency_key, resultado)
+
+    return pagamento
+
+@router.get("/pagamentos", response_model=HistoricoResponse)
+async def listar_pagamentos(
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(usuario_logado),
+    _rl = Depends(limite_por_usuario(limite=60))
+):
+    chave_cache = f"historico: {usuario.id}"
+
+    cache = await get_cache(chave_cache)
+    if cache:
+        return json.loads(cache)
+    
+    pagamentos = await services.listar_pagamentos(usuario.id, db)
+    resposta = HistoricoResponse(
+        total=len(pagamentos),
+        pagamentos=pagamentos
+    )
+    return resposta
+    
+@router.get("/pagamentos/{pagamentos_id}", response_model=PagamentoResponse)
+async def buscar_pagamento(
+    pagamento_id: int,
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(usuario_logado),
+    _rl= Depends(limite_por_usuario(limite=60))
+):
+    chave_cache = f"pagamento{pagamento_id}:{usuario.id}"
+
+    cache = await get_cache(chave_cache)
+    if cache:
+        return json.load(cache)
+    
+    pagamento = await services.buscar_pagamento(pagamento_id, usuario.id, db)
+    resultado = PagamentoResponse.model_validate(pagamento).model_dump(mode="json")
+
+    # ─── Saldo ────────────────────────────────────────
+# ─── Saldo ────────────────────────────────────────
+@router.get("/saldo", response_model=SaldoResponse)
+async def saldo(
+    db: AsyncSession = Depends(get_db),
+    usuario: Usuario = Depends(usuario_logado),
+    _rl = Depends(limite_por_usuario(limite=60))
+):
+    chave_cache = f"saldo:{usuario.id}"  # ← ponto, não dois pontos
+
+    cache = await get_cache(chave_cache)
+    if cache:
+        return json.loads(cache)
+    
+    resultado = await services.calcular_saldo(usuario.id, db)
+    await set_cache(chave_cache, resultado, ttl=30)
+
+    return resultado
