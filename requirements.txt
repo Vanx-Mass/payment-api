@@ -1,11 +1,14 @@
 fastapi              # framework web
 uvicorn[standard]    # servidor ASGI com extras de performance
-sqlalchemy           # ORM + queries assíncronas
+sqlalchemy[asyncio]  # ORM + queries assíncronas
 asyncpg              # driver PostgreSQL assíncrono
 pydantic[email]      # validação + EmailStr nos schemas
 pydantic-settings    # leitura do .env com tipagem
 python-jose[cryptography] # geração e validação de JWT
 passlib[bcrypt]      # hash de senha
+pytest
+pytest-asyncio
+pytest-cov           # cobertura de testes
 bcrypt ==4.0.1
 redis                # cliente Redis assíncrono
 tenacity             # retry com backoff exponencial

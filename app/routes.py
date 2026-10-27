@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from app.database import get_db
@@ -10,18 +9,15 @@ from app.schemas import (
 from app.auth import usuario_logado
 from app.models import Usuario
 from app.cache import get_cache, set_cache
-from app.idempotency import checar_idempotencia, salvar_idempotencia
+from app.idempotency import (
+    chave_idempotencia, checar_idempotencia, hash_requisicao,
+    proteger_idempotencia, salvar_idempotencia,
+)
 from app.rate_limiter import limite_por_usuario, limite_por_ip
 from app import services
 
 import json
-import logging
 
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
 
 router = APIRouter()
 
@@ -48,25 +44,37 @@ async def criar_pagamento(
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(usuario_logado),
     _rl= Depends(limite_por_usuario(limite=60)),
-    idempotency_key: Optional[str] = Header(None)
+    idempotency_key: Optional[str] = Header(None, max_length=255)
 ):
-    if not idempotency_key:
-        from fastapi import HTTPException
-        raise  HTTPException(
+    if not idempotency_key or not idempotency_key.strip():
+        raise HTTPException(
             status_code=400,
-            detail="Header Idempotency_key obrigatório"
+            detail="Header Idempotency-Key obrigatório"
         )
     
-    resultado_anterior = await checar_idempotencia(idempotency_key)
-    if resultado_anterior:
-        return resultado_anterior
-    
-    pagamento = await services.criar_pagamento(dados, usuario.id, db)
+    requisicao = dados.model_dump(mode="json")
+    chave_banco = chave_idempotencia(usuario.id, idempotency_key)
+    requisicao_hash = hash_requisicao(requisicao)
+    async with proteger_idempotencia(usuario.id, idempotency_key):
+        resultado_anterior = await checar_idempotencia(
+            usuario.id, idempotency_key, requisicao
+        )
+        if resultado_anterior is not None:
+            return resultado_anterior
 
-    resultado = PagamentoResponse.model_validate(pagamento).model_dump(mode="json")
-    await salvar_idempotencia(idempotency_key, resultado)
-
-    return pagamento
+        pagamento = await services.buscar_pagamento_idempotente(
+            usuario.id, chave_banco, requisicao_hash, db
+        )
+        if pagamento is None:
+            pagamento = await services.criar_pagamento(
+                dados, usuario.id, db,
+                chave_idempotencia=chave_banco, requisicao_hash=requisicao_hash,
+            )
+        resultado = PagamentoResponse.model_validate(pagamento).model_dump(mode="json")
+        await salvar_idempotencia(
+            usuario.id, idempotency_key, requisicao, resultado
+        )
+        return resultado
 
 @router.get("/pagamentos", response_model=HistoricoResponse)
 async def listar_pagamentos(
@@ -74,7 +82,7 @@ async def listar_pagamentos(
     usuario: Usuario = Depends(usuario_logado),
     _rl = Depends(limite_por_usuario(limite=60))
 ):
-    chave_cache = f"historico: {usuario.id}"
+    chave_cache = f"historico:{usuario.id}"
 
     cache = await get_cache(chave_cache)
     if cache:
@@ -85,25 +93,28 @@ async def listar_pagamentos(
         total=len(pagamentos),
         pagamentos=pagamentos
     )
+    await set_cache(chave_cache, resposta.model_dump(mode="json"), ttl=60)
     return resposta
     
-@router.get("/pagamentos/{pagamentos_id}", response_model=PagamentoResponse)
+@router.get("/pagamentos/{pagamento_id}", response_model=PagamentoResponse)
 async def buscar_pagamento(
     pagamento_id: int,
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(usuario_logado),
     _rl= Depends(limite_por_usuario(limite=60))
 ):
-    chave_cache = f"pagamento{pagamento_id}:{usuario.id}"
+    chave_cache = f"pagamento:{pagamento_id}:{usuario.id}"
 
     cache = await get_cache(chave_cache)
     if cache:
-        return json.load(cache)
+        return json.loads(cache)
     
     pagamento = await services.buscar_pagamento(pagamento_id, usuario.id, db)
     resultado = PagamentoResponse.model_validate(pagamento).model_dump(mode="json")
+    await set_cache(chave_cache, resultado, ttl=60)
 
-    # ─── Saldo ────────────────────────────────────────
+    return resultado
+
 # ─── Saldo ────────────────────────────────────────
 @router.get("/saldo", response_model=SaldoResponse)
 async def saldo(
@@ -111,7 +122,7 @@ async def saldo(
     usuario: Usuario = Depends(usuario_logado),
     _rl = Depends(limite_por_usuario(limite=60))
 ):
-    chave_cache = f"saldo:{usuario.id}"  # ← ponto, não dois pontos
+    chave_cache = f"saldo:{usuario.id}"
 
     cache = await get_cache(chave_cache)
     if cache:

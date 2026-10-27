@@ -4,15 +4,9 @@ from app.database import criar_tabelas
 from app.routes import router
 from app.rate_limiter import rate_limit_middleware
 from app.logging_config import setup_logging
-import logging
 
 setup_logging()
 
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -1,24 +1,13 @@
-from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
-import logging
-
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
-
-        
 # app/schemas.py
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.models import StatusPagamento
 
 
 # ─── Auth ─────────────────────────────────────────
 
 class RegistroInput(BaseModel):
-    nome:  str
+    nome:  str = Field(max_length=100)
     email: EmailStr
     senha: str
 
@@ -27,14 +16,17 @@ class RegistroInput(BaseModel):
     def senha_minima(cls, v: str) -> str:
         if len(v) < 6:
             raise ValueError("Senha deve ter no mínimo 6 caracteres")
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Senha deve ter no máximo 72 bytes")
         return v
 
     @field_validator("nome")
     @classmethod
     def nome_minimo(cls, v: str) -> str:
+        v = v.strip()
         if len(v) < 2:
             raise ValueError("Nome deve ter no mínimo 2 caracteres")
-        return v.strip()
+        return v
 
 
 class LoginInput(BaseModel):
@@ -50,15 +42,16 @@ class AuthResponse(BaseModel):
 # ─── Pagamentos ───────────────────────────────────
 
 class PagamentoInput(BaseModel):
-    valor:    float
-    descricao: str
+    valor:    float = Field(allow_inf_nan=False)
+    descricao: str = Field(max_length=255)
 
     @field_validator("valor")
     @classmethod
     def valor_positivo(cls, v: float) -> float:
+        v = round(v, 2)
         if v <= 0:
             raise ValueError("Valor deve ser maior que zero")
-        return round(v, 2)  
+        return v
 
     @field_validator("descricao")
     @classmethod

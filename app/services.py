@@ -1,26 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
-from app.models import Usuario, Pagamento, StatusPagamento
+from app.models import IdempotenciaPagamento, Usuario, Pagamento, StatusPagamento
 from app.schemas import RegistroInput, PagamentoInput
 from app.auth import hash_senha, verificar_senha, criar_token
 from app.cache import invalidar_cache_usuario
-import logging
 from app.retry import processar_pagamento_externo, com_timeout
-
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
-
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from fastapi import HTTPException
-from app.models import Usuario, Pagamento, StatusPagamento
-from app.schemas import RegistroInput, PagamentoInput
-from app.auth import hash_senha, verificar_senha, criar_token
-from app.cache import invalidar_cache_usuario
 
 
 # ─── Auth ─────────────────────────────────────────
@@ -61,28 +46,66 @@ async def autenticar_usuario(email: str, senha: str, db: AsyncSession) -> dict:
 async def criar_pagamento(
     dados: PagamentoInput,
     usuario_id: int,
-    db: AsyncSession
+    db: AsyncSession,
+    *,
+    chave_idempotencia: str,
+    requisicao_hash: str,
 ) -> Pagamento:
     
-    await com_timeout(
-        processar_pagamento_externo(dados.valor, dados.descricao),
+    resultado_processador = await com_timeout(
+        processar_pagamento_externo(
+            dados.valor,
+            dados.descricao,
+            chave_idempotencia,
+        ),
         segundos=30.0,
-        operacao="Processador de pagamento"
+        operacao="Processador de pagamento",
     )
 
     pagamento = Pagamento(
         usuario_id=usuario_id,
         valor=dados.valor,
         descricao=dados.descricao,
-        status=StatusPagamento.APROVADO 
+        status=(
+            StatusPagamento.APROVADO
+            if resultado_processador["aprovado"]
+            else StatusPagamento.RECUSADO
+        ),
     )
     db.add(pagamento)
+    db.add(IdempotenciaPagamento(
+        usuario_id=usuario_id,
+        chave=chave_idempotencia,
+        requisicao_hash=requisicao_hash,
+        pagamento=pagamento,
+    ))
     await db.commit()
     await db.refresh(pagamento)
 
     await invalidar_cache_usuario(usuario_id)
 
     return pagamento
+
+
+async def buscar_pagamento_idempotente(
+    usuario_id: int, chave: str, requisicao_hash: str, db: AsyncSession
+) -> Pagamento | None:
+    consulta = await db.execute(
+        select(Pagamento, IdempotenciaPagamento.requisicao_hash)
+        .join(IdempotenciaPagamento,
+              IdempotenciaPagamento.pagamento_id == Pagamento.id)
+        .where(IdempotenciaPagamento.usuario_id == usuario_id,
+               IdempotenciaPagamento.chave == chave)
+    )
+    anterior = consulta.first()
+    if anterior is None:
+        return None
+    if anterior[1] != requisicao_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key já utilizada com outros dados.",
+        )
+    return anterior[0]
 
 
 async def listar_pagamentos(usuario_id: int, db: AsyncSession) -> list[Pagamento]:
@@ -118,7 +141,11 @@ async def buscar_pagamento(
 async def calcular_saldo(usuario_id: int, db: AsyncSession) -> dict:
     resultado = await db.execute(
         select(
-            func.coalesce(func.sum(Pagamento.valor), 0).label("total"),
+            func.coalesce(
+                func.sum(Pagamento.valor).filter(
+                    Pagamento.status == StatusPagamento.APROVADO
+                ), 0
+            ).label("total"),
             func.count(Pagamento.id).filter(
                 Pagamento.status == StatusPagamento.APROVADO
             ).label("aprovados"),
