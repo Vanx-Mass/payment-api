@@ -15,7 +15,8 @@ settings = Settings()
 redis = aioredis.from_url(
     settings.redis_url,
     decode_responses=True,
-    ssl_cert_reqs=None
+    socket_connect_timeout=2,
+    socket_timeout=2,
 )
 
 # ─── Operações base ───────────────────────────────

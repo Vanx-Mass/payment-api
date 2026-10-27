@@ -1,9 +1,11 @@
 import time
 import logging
 import redis.asyncio as aioredis
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings
+from app.auth import usuario_logado
+from app.models import Usuario
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +19,8 @@ settings = Settings()
 redis = aioredis.from_url(
     settings.redis_url,
     decode_responses=True,
-    ssl_cert_reqs=None
+    socket_connect_timeout=2,
+    socket_timeout=2,
 )
 
 # ─── Operação base ────────────────────────────────
@@ -25,7 +28,7 @@ redis = aioredis.from_url(
 async def checar_limite(chave: str, limite: int, janela_segundos: int) -> dict:
     try:
         agora = int(time.time())
-        chave_redis = f"rate_limit: {chave}: {agora // janela_segundos}"
+        chave_redis = f"rate_limit:{chave}:{agora // janela_segundos}"
 
         contagem = await redis.incr(chave_redis)
 
@@ -53,7 +56,7 @@ async def checar_limite(chave: str, limite: int, janela_segundos: int) -> dict:
 # ─── Middleware — por IP ──────────────────────────
 
 async def rate_limit_middleware(request: Request, call_next):
-    ip = request.client.host
+    ip = request.client.host if request.client else "desconhecido"
 
     info = await checar_limite(
         chave=f"ip:{ip}",
@@ -84,10 +87,7 @@ async def rate_limit_middleware(request: Request, call_next):
 # ─── Dependency — por usuário logado ─────────────
 
 def limite_por_usuario(limite: int = 60, janela_segundos: int = 60):
-    async def checar(request: Request, usuario=None):
-        if usuario is None:
-            return
-
+    async def checar(usuario: Usuario = Depends(usuario_logado)):
         info = await checar_limite(
             chave=f"usuario:{usuario.id}",
             limite=limite,
@@ -111,7 +111,7 @@ def limite_por_usuario(limite: int = 60, janela_segundos: int = 60):
 
 def limite_por_ip(limite: int = 10, janela_segundos: int = 60):
     async def checar(request: Request):
-        ip = request.client.host
+        ip = request.client.host if request.client else "desconhecido"
 
         info = await checar_limite(
             chave=f"login:{ip}",

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,16 +9,9 @@ from pydantic_settings import BaseSettings
 from app.database import get_db
 from app.models import Usuario
 
-import logging
 
 bearer = HTTPBearer()
 
-
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
 
 class Settings(BaseSettings):
     secret_key: str
@@ -44,7 +37,7 @@ def verificar_senha(senha: str, hash: str) -> bool:
 def criar_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
-        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRACAO_HORAS)
+        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRACAO_HORAS)
 
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
@@ -53,8 +46,9 @@ def criar_token(user_id: int) -> str:
 def decodificar_token(token: str) -> int |None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITMO])
-        return int(payload["sub"])
-    except JWTError:
+        user_id = int(payload["sub"])
+        return user_id if user_id > 0 else None
+    except (JWTError, KeyError, TypeError, ValueError):
         return None
     
 # ─── Dependency ───────────────────────────────────

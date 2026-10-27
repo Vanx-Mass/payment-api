@@ -1,16 +1,10 @@
 # app/models.py
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import String, Float, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Float, DateTime, ForeignKey, UniqueConstraint, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
-import logging
 
-logger = logging.getLogger(__name__)
-
-class Database:
-    def connect(self):
-        logger.info("Conectando ao banco...")
 
 class StatusPagamento(str, Enum):
     PENDENTE   = "pendente"
@@ -42,3 +36,15 @@ class Pagamento(Base):
     criado_em:   Mapped[datetime]        = mapped_column(DateTime, default=datetime.utcnow)
 
     usuario: Mapped["Usuario"] = relationship(back_populates="pagamentos")
+
+
+class IdempotenciaPagamento(Base):
+    __tablename__ = "idempotencias_pagamento"
+    __table_args__ = (UniqueConstraint("usuario_id", "chave"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    chave: Mapped[str] = mapped_column(String(128))
+    requisicao_hash: Mapped[str] = mapped_column(String(64))
+    pagamento_id: Mapped[int] = mapped_column(ForeignKey("pagamentos.id"), unique=True)
+    pagamento: Mapped["Pagamento"] = relationship()
