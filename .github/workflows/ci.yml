@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Testes
+    uses: ./.github/workflows/reusable-tests.yml
+    with:
+      minimum-coverage: 80
+
+  build:
+    name: Docker (${{ matrix.image }})
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: payment-api
+            context: .
+            dockerfile: Dockerfile
+          - image: payment-gateway
+            context: ./app/gateway
+            dockerfile: ./app/gateway/Dockerfile
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Construir imagem
+        env:
+          IMAGE: ${{ matrix.image }}
+          BUILD_CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: docker build --file "$DOCKERFILE" --tag "$IMAGE:ci" "$BUILD_CONTEXT"
+
+  ci-required:
+    name: CI obrigatorio
+    if: ${{ always() }}
+    needs: [tests, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+
+    steps:
+      - name: Exigir sucesso de testes e builds
+        env:
+          TESTS_RESULT: ${{ needs.tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          echo "Testes: $TESTS_RESULT"
+          echo "Docker: $BUILD_RESULT"
+          if [[ "$TESTS_RESULT" != "success" || "$BUILD_RESULT" != "success" ]]; then
+            exit 1
+          fi
+          echo "CI aprovado."

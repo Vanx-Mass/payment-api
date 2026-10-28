@@ -1,0 +1,56 @@
+name: Testes reutilizaveis
+
+on:
+  workflow_call:
+    inputs:
+      minimum-coverage:
+        description: Cobertura minima exigida, em porcentagem.
+        required: false
+        type: number
+        default: 80
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Preparar projeto
+        uses: ./.github/actions/setup-project
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Executar testes e medir cobertura
+        env:
+          MINIMUM_COVERAGE: ${{ inputs.minimum-coverage }}
+        run: |
+          mkdir -p reports
+          python -m pytest -q \
+            --junitxml=reports/junit.xml \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=html:reports/htmlcov \
+            --cov-fail-under="$MINIMUM_COVERAGE"
+
+      - name: Guardar relatorios
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: testes-python-${{ matrix.python-version }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 7
