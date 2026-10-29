@@ -158,14 +158,14 @@ O endpoint `POST /pagamentos` exige o header `Idempotency-Key`:
 ```bash
 # Primeira requisição — processa e salva
 curl -X POST http://localhost:8000/pagamentos \
-  -H "Authorization: Bearer SEU_TOKEN" \
+  -H "Authorization: Bearer ${TOKEN_USUARIO_1}" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: pedido-unico-001" \
   -d '{"valor": 100.00, "descricao": "Pedido #1"}'
 
 # Mesma chave — retorna resultado anterior sem reprocessar
 curl -X POST http://localhost:8000/pagamentos \
-  -H "Authorization: Bearer SEU_TOKEN" \
+  -H "Authorization: Bearer ${TOKEN_USUARIO_2}" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: pedido-unico-001" \
   -d '{"valor": 100.00, "descricao": "Pedido #1"}'

@@ -1,0 +1,110 @@
+name: Entrega assinada
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: entrega-main
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Aprovar e preparar release de staging
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: staging
+      deployment: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+        with:
+          cosign-release: v3.1.4
+      - name: Definir nomes das imagens
+        run: |
+          echo "API_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "GATEWAY_BASE=ghcr.io/${GITHUB_REPOSITORY,,}-gateway" >> "$GITHUB_ENV"
+      - name: Construir e publicar API
+        id: api
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.API_BASE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: mode=min
+      - name: Construir e publicar gateway
+        id: gateway
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ./app/gateway
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.GATEWAY_BASE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: mode=min
+      - name: Auditar imagens, assinar e verificar
+        env:
+          API_REF: ${{ env.API_BASE }}@${{ steps.api.outputs.digest }}
+          GATEWAY_REF: ${{ env.GATEWAY_BASE }}@${{ steps.gateway.outputs.digest }}
+        run: |
+          mkdir -p reports release
+          python -m pip install pip-audit==2.10.1
+          docker run --rm --entrypoint python "$API_REF" -m pip freeze > reports/api-installed.txt
+          docker run --rm --entrypoint python "$GATEWAY_REF" -m pip freeze > reports/gateway-installed.txt
+          python -m pip_audit --disable-pip --no-deps -r reports/api-installed.txt -f json -o reports/api-image-audit.json
+          python -m pip_audit --disable-pip --no-deps -r reports/gateway-installed.txt -f json -o reports/gateway-image-audit.json
+          docker buildx imagetools inspect "$API_REF" --format '{{ json .SBOM }}' > reports/sbom-api.json
+          docker buildx imagetools inspect "$GATEWAY_REF" --format '{{ json .SBOM }}' > reports/sbom-gateway.json
+          python -c 'import json; from pathlib import Path; assert all(json.loads(p.read_text()) for p in Path("reports").glob("sbom-*.json"))'
+          cosign sign --yes "$API_REF" "$GATEWAY_REF"
+          identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main"
+          for image in "$API_REF" "$GATEWAY_REF"; do
+            cosign verify --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$image"
+          done
+          python -c 'import json,os; from pathlib import Path; data={"repository":os.environ["GITHUB_REPOSITORY"],"sha":os.environ["GITHUB_SHA"],"run_id":os.environ["GITHUB_RUN_ID"],"api":os.environ["API_REF"],"gateway":os.environ["GATEWAY_REF"]}; Path("release/release.json").write_text(json.dumps(data,indent=2))'
+      - name: Disponibilizar release aprovada
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-staging
+          path: release/release.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Guardar evidencias da entrega
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: evidencias-release
+          path: reports/
+          retention-days: 30

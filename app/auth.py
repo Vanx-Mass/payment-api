@@ -3,7 +3,8 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from jose import jwt, JWTError
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic_settings import BaseSettings
 from app.database import get_db
@@ -43,12 +44,17 @@ def criar_token(user_id: int) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
 
 
-def decodificar_token(token: str) -> int |None:
+def decodificar_token(token: str) -> int | None:
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITMO])
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[ALGORITMO],
+            options={"require": ["exp", "sub"]},
+        )
         user_id = int(payload["sub"])
         return user_id if user_id > 0 else None
-    except (JWTError, KeyError, TypeError, ValueError):
+    except (InvalidTokenError, KeyError, TypeError, ValueError):
         return None
     
 # ─── Dependency ───────────────────────────────────

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from app.database import get_db
@@ -98,7 +98,7 @@ async def listar_pagamentos(
     
 @router.get("/pagamentos/{pagamento_id}", response_model=PagamentoResponse)
 async def buscar_pagamento(
-    pagamento_id: int,
+    pagamento_id: int = Path(ge=1, le=2_147_483_647),
     db: AsyncSession = Depends(get_db),
     usuario: Usuario = Depends(usuario_logado),
     _rl= Depends(limite_por_usuario(limite=60))

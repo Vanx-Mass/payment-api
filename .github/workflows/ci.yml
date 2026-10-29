@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
   schedule:
     - cron: "17 9 * * 1-5"
 
@@ -17,6 +18,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  security:
+    name: Seguranca
+    uses: ./.github/workflows/reusable-security.yml
+
   tests:
     name: Testes
     uses: ./.github/workflows/reusable-tests.yml
@@ -25,7 +30,7 @@ jobs:
 
   build:
     name: Docker (${{ matrix.image }})
-    needs: tests
+    needs: [tests, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -41,7 +46,7 @@ jobs:
 
     steps:
       - name: Baixar codigo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -55,7 +60,7 @@ jobs:
   ci-required:
     name: CI obrigatorio
     if: ${{ always() }}
-    needs: [tests, build]
+    needs: [tests, security, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
 
@@ -63,11 +68,13 @@ jobs:
       - name: Exigir sucesso de testes e builds
         env:
           TESTS_RESULT: ${{ needs.tests.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           echo "Testes: $TESTS_RESULT"
+          echo "Seguranca: $SECURITY_RESULT"
           echo "Docker: $BUILD_RESULT"
-          if [[ "$TESTS_RESULT" != "success" || "$BUILD_RESULT" != "success" ]]; then
+          if [[ "$TESTS_RESULT" != "success" || "$SECURITY_RESULT" != "success" || "$BUILD_RESULT" != "success" ]]; then
             exit 1
           fi
           echo "CI aprovado."

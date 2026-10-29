@@ -1,9 +1,10 @@
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-from jose import jwt
+import jwt
 
 from app import auth, cache, rate_limiter, services
 from app.logging_config import setup_logging
@@ -103,7 +104,7 @@ async def test_invalid_registration_returns_422(environment, payload):
 
 @pytest.mark.parametrize('subject', ['abc', '-1', '0'])
 async def test_invalid_token_subject_returns_401(environment, subject):
-    token = jwt.encode({'sub': subject}, auth.settings.secret_key, algorithm='HS256')
+    token = jwt.encode({'sub': subject, 'exp': datetime.now(timezone.utc) + timedelta(minutes=5)}, auth.settings.secret_key, algorithm='HS256')
     response = await environment.client.get('/pagamentos',
                                              headers={'Authorization': 'Bearer ' + token})
     assert response.status_code == 401, response.text
