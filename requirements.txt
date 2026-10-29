@@ -9,7 +9,7 @@ passlib[bcrypt]      # hash de senha
 pytest
 pytest-asyncio
 pytest-cov           # cobertura de testes
-bcrypt ==4.0.1
+bcrypt ==5.0.0
 redis                # cliente Redis assíncrono
 tenacity             # retry com backoff exponencial
 httpx                # cliente HTTP assíncrono (processador externo)
