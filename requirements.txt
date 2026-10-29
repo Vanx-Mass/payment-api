@@ -4,7 +4,7 @@ sqlalchemy[asyncio]  # ORM + queries assíncronas
 asyncpg              # driver PostgreSQL assíncrono
 pydantic[email]      # validação + EmailStr nos schemas
 pydantic-settings    # leitura do .env com tipagem
-python-jose[cryptography] # geração e validação de JWT
+PyJWT[crypto]==2.15.1 # geração e validação de JWT
 passlib[bcrypt]      # hash de senha
 pytest
 pytest-asyncio

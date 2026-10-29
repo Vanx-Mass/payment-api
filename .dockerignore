@@ -12,3 +12,5 @@ htmlcov/
 *.db
 reports/
 coverage.xml
+.staging/
+.venv-security/

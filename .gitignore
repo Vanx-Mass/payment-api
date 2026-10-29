@@ -10,3 +10,5 @@ venv/
 htmlcov/
 coverage.xml
 reports/
+.staging/
+.venv-security/

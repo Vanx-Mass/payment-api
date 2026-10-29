@@ -1,0 +1,4 @@
+# Somente para exercitar o rollback automatico no laboratorio.
+services:
+  api:
+    command: ["python", "-c", "raise SystemExit('Falha de saude simulada')"]

@@ -4,6 +4,7 @@ import redis.asyncio as aioredis
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from app.auth import usuario_logado
 from app.models import Usuario
 
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
+    rate_limit_multiplier: int = Field(default=1, ge=1, le=1000)
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
@@ -26,6 +28,7 @@ redis = aioredis.from_url(
 # ─── Operação base ────────────────────────────────
 
 async def checar_limite(chave: str, limite: int, janela_segundos: int) -> dict:
+    limite *= settings.rate_limit_multiplier
     try:
         agora = int(time.time())
         chave_redis = f"rate_limit:{chave}:{agora // janela_segundos}"

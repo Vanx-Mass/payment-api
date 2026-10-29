@@ -1,0 +1,30 @@
+{
+  "actions/checkout": {
+    "tag": "v7",
+    "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1"
+  },
+  "actions/setup-python": {
+    "tag": "v7",
+    "sha": "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0"
+  },
+  "actions/upload-artifact": {
+    "tag": "v7",
+    "sha": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+  },
+  "docker/setup-buildx-action": {
+    "tag": "v4",
+    "sha": "f87e5991a6d7451dcb8d9637bfbc97413f497069"
+  },
+  "docker/login-action": {
+    "tag": "v4",
+    "sha": "81c6f93d4bc991e510b342a00b419b3bb4efc5c6"
+  },
+  "docker/build-push-action": {
+    "tag": "v7",
+    "sha": "c3c9e263c25d99ce0380d002d59b67737d91b0dc"
+  },
+  "sigstore/cosign-installer": {
+    "tag": "v4.1.0",
+    "sha": "ba7bc0a3fef59531c69a25acd34668d6d3fe6f22"
+  }
+}

@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DAST_DB_PASSWORD:?}
+      POSTGRES_DB: payment_api
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_api"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  gateway:
+    build: ../app/gateway
+    environment:
+      GATEWAY_MODE: success
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: ..
+    ports:
+      - "127.0.0.1:18080:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${DAST_DB_PASSWORD}@db:5432/payment_api
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: ${DAST_SECRET_KEY:?}
+      PROCESSOR_BASE_URL: http://gateway:8080
+      RATE_LIMIT_MULTIPLIER: "1000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json')"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
