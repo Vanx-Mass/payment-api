@@ -3,7 +3,7 @@
 > API de pagamentos com autenticação JWT, idempotência, cache Redis, rate limiting e gateway HTTP simulado.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-latest-green)
+[![CI](https://github.com/Vanx-Mass/payment-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Vanx-Mass/payment-api/actions/workflows/ci.yml)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)
 ![Redis](https://img.shields.io/badge/Redis-7-red)
 ![Docker](https://img.shields.io/badge/Docker-ready-blue)
@@ -15,6 +15,29 @@
 API REST de pagamentos construída com FastAPI, PostgreSQL e Redis para aplicar
 conceitos de CI/CD, segurança, observabilidade e orquestração. A base inclui
 idempotência, retry com backoff exponencial, timeout no gateway e rate limiting.
+
+---
+
+## Entrega e laboratório
+
+- **CI/CD e DevSecOps.** O GitHub Actions executa testes, builds Docker, SAST
+  com Bandit, DAST autenticado com OWASP ZAP, auditoria de dependências com
+  pip-audit e busca de segredos com Gitleaks. O check obrigatório protege a main.
+- **Entrega assinada.** O workflow publica imagens no GHCR com SBOM e assinatura
+  Cosign via OIDC. A versão candidata passa por uma prévia isolada antes
+  da promoção ao staging local. O exercício confirmou rollback automático
+  com os pagamentos preservados no PostgreSQL.
+- **Observabilidade.** Prometheus coleta métricas e avalia alertas. Grafana
+  exibe os painéis. OpenTelemetry propaga o contexto até o gateway. Tempo
+  armazena os traces, e Loki permite consultar os logs pelo trace ID.
+- **Orquestração.** Uma DAG no Apache Airflow concilia os pagamentos do
+  PostgreSQL com os registros do gateway. A validação cobre falha de janela,
+  reexecução sem duplicar o relatório e backfill.
+
+A entrega do laboratório passou com **65 testes e 85,58% de cobertura**.
+Veja o [CI do PR](https://github.com/Vanx-Mass/payment-api/actions/runs/41705783132),
+a [entrega assinada](https://github.com/Vanx-Mass/payment-api/actions/runs/41706592418)
+e o [guia para reproduzir os exercícios](docs/laboratorio.md).
 
 ---
 
@@ -36,7 +59,7 @@ idempotência, retry com backoff exponencial, timeout no gateway e rate limiting
 
 ## 🛠️ Tecnologias
 
-- **Python 3.11**
+- **Python 3.11 e 3.12** — versões verificadas no CI
 - **FastAPI** — framework web
 - **PostgreSQL** — persistência dos dados financeiros
 - **Redis** — cache, idempotência e rate limiting
@@ -68,7 +91,7 @@ por HTTP usando `PROCESSOR_BASE_URL`, encaminhando a mesma chave de idempotênci
 em todas as tentativas. O Compose inicia API, PostgreSQL, Redis e gateway.
 
 `GATEWAY_MODE` aceita `success`, `fail_once`, `always_fail` e `timeout`.
-O estado do simulador é mantido em memória e reiniciado junto com o contêiner.
+No Compose básico, o simulador guarda o estado em memória. O laboratório usa SQLite em um volume Docker para persistir os registros do gateway.
 
 ### Pré-requisitos
 - Docker e Docker Compose instalados
@@ -86,9 +109,9 @@ cp .env.example .env
 # 3. Suba tudo
 docker compose up -d --build --wait
 
-# 4. Acesse a documentação
-http://localhost:8000/docs
 ```
+
+Acesse a [documentação Swagger](http://localhost:8000/docs).
 
 ---
 
@@ -147,11 +170,9 @@ cache ou uma falha ao salvar a resposta no Redis. A nova tabela é criada na
 inicialização pela rotina `criar_tabelas`, sem alterar colunas das tabelas atuais.
 O cache dura 24 horas; o registro no banco permanece sem expiração automática.
 
-O gateway recebe e respeita uma chave de idempotência estável durante sua
-execução. Como o simulador mantém os resultados em memória, essa proteção no
-gateway não sobrevive ao reinício do contêiner. Um processador real precisaria
-persistir esse registro para cobrir quedas entre a aprovação externa e a
-gravação no banco da API.
+O gateway usa uma chave estável nas tentativas. No Compose básico, o
+simulador guarda as aprovações em memória até o reinício. No laboratório, o
+volume SQLite preserva as aprovações e alimenta a conciliação no Airflow.
 
 O endpoint `POST /pagamentos` exige o header `Idempotency-Key`:
 
@@ -165,7 +186,7 @@ curl -X POST http://localhost:8000/pagamentos \
 
 # Mesma chave — retorna resultado anterior sem reprocessar
 curl -X POST http://localhost:8000/pagamentos \
-  -H "Authorization: Bearer ${TOKEN_USUARIO_2}" \
+  -H "Authorization: Bearer ${TOKEN_USUARIO_1}" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: pedido-unico-001" \
   -d '{"valor": 100.00, "descricao": "Pedido #1"}'
@@ -190,7 +211,7 @@ docker compose down
 
 ---
 
-## Dia 1 e próximos passos
+## Verificação da API e do gateway
 
 Execute a verificação completa em PowerShell, na raiz do projeto:
 
