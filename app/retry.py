@@ -2,6 +2,9 @@ import asyncio
 import logging
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.propagate import inject
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -100,11 +103,21 @@ async def processar_pagamento_externo(
 ) -> dict:
     try:
         async with criar_http_client() as client:
-            resposta = await client.post(
-                f"{settings.processor_base_url.rstrip('/')}/processar",
-                json={"valor": valor, "descricao": descricao},
-                headers={"Idempotency-Key": idempotency_key},
-            )
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                "POST gateway /processar", kind=SpanKind.CLIENT,
+                record_exception=False, set_status_on_exception=True,
+            ) as span:
+                headers = {"Idempotency-Key": idempotency_key}
+                inject(headers)
+                resposta = await client.post(
+                    f"{settings.processor_base_url.rstrip('/')}/processar",
+                    json={"valor": valor, "descricao": descricao},
+                    headers=headers,
+                )
+                span.set_attribute("http.response.status_code", resposta.status_code)
+                if not resposta.is_success:
+                    span.set_status(Status(StatusCode.ERROR))
     except httpx.TimeoutException as exc:
         raise ErroTimeout("Timeout no gateway") from exc
     except httpx.TransportError as exc:

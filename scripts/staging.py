@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import secrets
 import subprocess
+import sys
 import uuid
 
 import httpx
@@ -72,12 +73,14 @@ def verify_images(data):
         command('docker', 'pull', image)
 
 
-def compose(data, *args, simulate_failure=False):
+def compose(data, *args, simulate_failure=False, preview=False):
     image_env = STATE / 'images.env'
     image_env.write_text(f'API_IMAGE={data["api"]}\nGATEWAY_IMAGE={data["gateway"]}\n', encoding='utf-8')
-    invocation = ['docker', 'compose', '-p', 'payment-staging',
+    invocation = ['docker', 'compose', '-p', 'payment-preview' if preview else 'payment-staging',
                   '--env-file', str(STATE / 'runtime.env'), '--env-file', str(image_env),
                   '-f', str(ROOT / 'deploy/compose.staging.yml')]
+    if preview:
+        invocation += ['-f', str(ROOT / 'deploy/compose.staging-preview.yml')]
     if simulate_failure:
         invocation += ['-f', str(ROOT / 'deploy/compose.staging-failure.yml')]
     env = dict(os.environ)
@@ -86,16 +89,26 @@ def compose(data, *args, simulate_failure=False):
     subprocess.run(invocation + list(args), cwd=ROOT, env=env, check=True, timeout=300)
 
 
+def smoke(port):
+    base_url = f'http://127.0.0.1:{port}'
+    subprocess.run([sys.executable, str(ROOT / 'scripts/validar_pagamento.py'), '201'],
+                   env=dict(os.environ, BASE_URL=base_url), cwd=ROOT, check=True, timeout=90)
+    with httpx.Client(timeout=10) as client:
+        client.get(f'{base_url}/openapi.json').raise_for_status()
+
+
+def preview_release(data):
+    try:
+        compose(data, 'up', '-d', '--wait', '--wait-timeout', '120', preview=True)
+        smoke(8003)
+    finally:
+        compose(data, 'down', '-v', preview=True)
+
+
 def apply(data, simulate_failure=False):
     compose(data, 'up', '-d', '--wait', '--wait-timeout', '120', '--force-recreate',
             simulate_failure=simulate_failure)
-    # Exercita autenticacao, banco, Redis, gateway e idempotencia com dados ficticios.
-    env = dict(os.environ, BASE_URL='http://127.0.0.1:8001')
-    subprocess.run([str(ROOT / '.venv/Scripts/python.exe') if os.name == 'nt' else 'python',
-                    str(ROOT / 'scripts/validar_pagamento.py'), '201'],
-                   env=env, cwd=ROOT, check=True, timeout=90)
-    with httpx.Client(timeout=10) as client:
-        client.get('http://127.0.0.1:8001/openapi.json').raise_for_status()
+    smoke(8001)
 
 
 def log(action, data):
@@ -160,6 +173,9 @@ def main():
         parser.error('Realize um deploy saudavel antes de simular a falha.')
     # As duas imagens sao verificadas antes de alterar os servicos locais.
     verify_images(candidate)
+    if args.action == 'deploy':
+        preview_release(candidate)
+        log('preview-ok', candidate)
     deployment_id = deployment_event(candidate, 'in_progress')
     try:
         apply(candidate, simulate_failure=args.simulate_health_failure)

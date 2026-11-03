@@ -1,0 +1,25 @@
+services:
+  airflow:
+    image: apache/airflow:3.1.8-python3.12
+    command: standalone
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://localhost:8080/execution/
+      RECONCILIATION_DATABASE_URL: postgresql+psycopg2://postgres:123456@db:5432/payment_api
+      RECONCILIATION_GATEWAY_URL: http://gateway:8080
+      RECONCILIATION_TOKEN: ${RECONCILIATION_TOKEN:-lab-reconciliation}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      PYTHONPATH: /opt/airflow/dags
+    volumes:
+      - ../orchestration/dags:/opt/airflow/dags:ro
+      - airflow_state:/opt/airflow
+    depends_on:
+      db:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+volumes:
+  airflow_state:

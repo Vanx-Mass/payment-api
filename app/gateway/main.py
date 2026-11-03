@@ -1,6 +1,13 @@
 import asyncio
 import hashlib
 import os
+import secrets
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from app.gateway.ledger import Ledger
+from app.logging_config import setup_logging
+from app.telemetry import configure_http, tracer_for
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -17,7 +24,20 @@ def create_app(mode=None, timeout_delay=6):
     if mode not in {"success", "fail_once", "always_fail", "timeout"}:
         raise ValueError(f"GATEWAY_MODE inválido: {mode}")
 
-    app = FastAPI(title="Gateway simulado")
+    ledger_path = os.getenv("GATEWAY_LEDGER_PATH")
+    ledger = Ledger(ledger_path) if ledger_path else None
+    reconciliation_token = os.getenv("RECONCILIATION_TOKEN")
+    provider = tracer_for("gateway")
+    if provider:
+        setup_logging()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        if provider:
+            provider.shutdown()
+
+    app = FastAPI(title="Gateway simulado", lifespan=lifespan)
     app.state.resultados = {}
     app.state.tentativas = {}
     app.state.processamentos = {}
@@ -35,7 +55,7 @@ def create_app(mode=None, timeout_delay=6):
         payload = dados.model_dump(mode="json")
 
         async with lock:
-            anterior = app.state.resultados.get(idempotency_key)
+            anterior = ledger.find(idempotency_key) if ledger else app.state.resultados.get(idempotency_key)
 
             if anterior:
                 if anterior["payload"] != payload:
@@ -60,16 +80,34 @@ def create_app(mode=None, timeout_delay=6):
                     "codigo_autorizacao": f"AUTH-{codigo}",
                 }
 
-                app.state.resultados[idempotency_key] = {
-                    "payload": payload,
-                    "resposta": resposta,
-                }
-                app.state.processamentos[idempotency_key] = 1
+                if ledger:
+                    ledger.save(idempotency_key, payload, resposta)
+                    app.state.tentativas.pop(idempotency_key, None)
+                else:
+                    app.state.resultados[idempotency_key] = {
+                        "payload": payload,
+                        "resposta": resposta,
+                    }
+                    app.state.processamentos[idempotency_key] = 1
                 return resposta
 
         await asyncio.sleep(timeout_delay)
         raise HTTPException(504, "Timeout simulado")
 
+    if ledger and reconciliation_token:
+        @app.get("/internal/ledger", include_in_schema=False)
+        async def ledger_window(start: datetime, end: datetime, authorization: str = Header(default="")):
+            expected = f"Bearer {reconciliation_token}".encode()
+            if not secrets.compare_digest(authorization.encode(), expected):
+                raise HTTPException(401, "Credencial de conciliação inválida")
+            if start.tzinfo is None or end.tzinfo is None or start >= end:
+                raise HTTPException(422, "Janela inválida")
+            return ledger.window(
+                start.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+                end.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+            )
+
+    configure_http(app, "gateway", provider)
     return app
 
 

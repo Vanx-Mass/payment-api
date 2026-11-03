@@ -22,7 +22,9 @@ services:
       retries: 30
 
   gateway:
-    build: ../app/gateway
+    build:
+      context: ..
+      dockerfile: app/gateway/Dockerfile
     environment:
       GATEWAY_MODE: success
     healthcheck:

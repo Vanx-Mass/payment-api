@@ -5,6 +5,7 @@ from app.models import IdempotenciaPagamento, Usuario, Pagamento, StatusPagament
 from app.schemas import RegistroInput, PagamentoInput
 from app.auth import hash_senha, verificar_senha, criar_token
 from app.cache import invalidar_cache_usuario
+from app.telemetry import PAYMENTS
 from app.retry import processar_pagamento_externo, com_timeout
 
 
@@ -80,6 +81,7 @@ async def criar_pagamento(
         pagamento=pagamento,
     ))
     await db.commit()
+    PAYMENTS.labels(pagamento.status.value).inc()
     await db.refresh(pagamento)
 
     await invalidar_cache_usuario(usuario_id)

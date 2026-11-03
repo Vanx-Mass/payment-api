@@ -1,0 +1,10 @@
+groups:
+  - name: payment-lab
+    rules:
+      - alert: PagamentoComFalhas
+        expr: sum by (service) (increase(payment_http_requests_total{route=~"/pagamentos|/processar",method="POST",status=~"5.."}[1m])) > 0
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pagamentos com respostas 5xx em {{ $labels.service }}"

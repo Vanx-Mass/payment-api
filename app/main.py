@@ -4,8 +4,13 @@ from app.database import criar_tabelas
 from app.routes import router
 from app.rate_limiter import rate_limit_middleware
 from app.logging_config import setup_logging
+from app.telemetry import configure_http, tracer_for
+from opentelemetry import trace
 
 setup_logging()
+provider = tracer_for("api")
+if provider:
+    trace.set_tracer_provider(provider)
 
 
 @asynccontextmanager
@@ -13,7 +18,8 @@ async def lifespan(app: FastAPI):
     await criar_tabelas()
     print("✅ Tabelas criadas")
     yield
-    print("✅ API encerrada")
+    if provider:
+        provider.force_flush()
 
 app = FastAPI(
     title="Payment API",
@@ -34,3 +40,4 @@ async def adicionar_cabecalhos_seguranca(request: Request, call_next):
     return response
 
 app.include_router(router)
+configure_http(app, "api", provider)
