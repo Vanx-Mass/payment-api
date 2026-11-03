@@ -204,3 +204,9 @@ Cada cenário cria um usuário e uma chave fictícios exclusivos.
 
 Consulte [TESTING.md](TESTING.md), [evidências do Dia 1](docs/dia1-validacao.md)
 e o [roteiro do projeto](docs/plano-projeto.md).
+
+## Laboratório de observabilidade, Airflow e incidente
+
+O [guia do laboratório](docs/laboratorio.md) explica como subir a stack
+isolada, observar uma falha controlada, rodar a conciliação e relacionar
+cada etapa com o roteiro de DevOps, CI/CD e observabilidade.

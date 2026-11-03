@@ -1,5 +1,6 @@
 import logging
 import sys
+from app.telemetry import JsonFormatter
 
 def setup_logging(level=logging.INFO):
     root_logger = logging.getLogger()
@@ -9,8 +10,6 @@ def setup_logging(level=logging.INFO):
 
     handler = logging.StreamHandler(sys.stdout)
     handler.set_name("payment-api")
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
+    handler.setFormatter(JsonFormatter())
 
     root_logger.addHandler(handler)

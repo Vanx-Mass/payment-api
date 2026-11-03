@@ -1,0 +1,10 @@
+services:
+  api:
+    env_file: !reset []
+    ports: !override ["127.0.0.1:8002:8000"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:123456@db:5432/payment_api
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: ${LAB_SECRET_KEY:-disposable-local-lab}
+      PROCESSOR_BASE_URL: http://gateway:8080
+      RATE_LIMIT_MULTIPLIER: 10

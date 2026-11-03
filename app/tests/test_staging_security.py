@@ -25,6 +25,7 @@ def local_deploy(tmp_path, monkeypatch):
     monkeypatch.setattr(staging, 'verify_images', Mock())
     monkeypatch.setattr(staging, 'deployment_event', Mock(return_value=123))
     monkeypatch.setattr(staging, 'compose', Mock())
+    monkeypatch.setattr(staging, 'smoke', Mock())
     monkeypatch.setattr(staging, 'command', Mock(return_value=''))
     return tmp_path
 
@@ -56,7 +57,9 @@ def test_falha_de_saude_restaura_versao_anterior_e_mantem_deploy_reprovado(local
     assert attempts == ['2', '1']
     staging.verify_images.assert_called_once()
     assert json.loads((local_deploy / 'current.json').read_text()) == old
-    evidence = json.loads((local_deploy / 'deployments.jsonl').read_text())
+    first, last = (local_deploy / 'deployments.jsonl').read_text().splitlines()
+    assert json.loads(first)['action'] == 'preview-ok'
+    evidence = json.loads(last)
     assert evidence['action'] == 'rollback-automatico'
     assert evidence['run_id'] == '1'
 
@@ -68,7 +71,7 @@ def test_primeiro_deploy_reprovado_preserva_banco_e_nao_registra_sucesso(local_d
     arguments = staging.compose.call_args.args
     assert arguments[1:] == ('stop', 'api', 'gateway')
     assert not (local_deploy / 'current.json').exists()
-    assert not (local_deploy / 'deployments.jsonl').exists()
+    assert json.loads((local_deploy / 'deployments.jsonl').read_text())['action'] == 'preview-ok'
 
 
 @pytest.mark.parametrize('error', [

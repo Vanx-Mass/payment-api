@@ -41,7 +41,7 @@ jobs:
             context: .
             dockerfile: Dockerfile
           - image: payment-gateway
-            context: ./app/gateway
+            context: .
             dockerfile: ./app/gateway/Dockerfile
 
     steps:
@@ -57,10 +57,48 @@ jobs:
           DOCKERFILE: ${{ matrix.dockerfile }}
         run: docker build --file "$DOCKERFILE" --tag "$IMAGE:ci" "$BUILD_CONTEXT"
 
+  lab:
+    name: Laboratorio de observabilidade e Airflow
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - name: Iniciar laboratorio isolado
+        run: |
+          python -m pip install httpx
+          docker compose -p payment-lab -f docker-compose.yml -f deploy/compose.lab.yml \
+            -f deploy/compose.observability.yml up -d --build --wait --wait-timeout 180
+      - name: Validar alerta, trace, logs e recuperacao
+        run: python scripts/lab_incident.py
+      - name: Validar DAG e reexecucao da janela
+        run: python scripts/lab_reconciliation.py
+      - name: Guardar evidencias
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: evidencias-laboratorio
+          path: reports/
+          if-no-files-found: ignore
+      - name: Logs do laboratorio em caso de falha
+        if: failure()
+        run: |
+          docker compose -p payment-lab -f docker-compose.yml -f deploy/compose.lab.yml \
+            -f deploy/compose.observability.yml logs --tail 100
+      - name: Encerrar laboratorio
+        if: always()
+        run: |
+          docker compose -p payment-lab -f docker-compose.yml -f deploy/compose.lab.yml \
+            -f deploy/compose.observability.yml -f deploy/compose.airflow.yml down -v --remove-orphans
+
   ci-required:
     name: CI obrigatorio
     if: ${{ always() }}
-    needs: [tests, security, build]
+    needs: [tests, security, build, lab]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
 
@@ -69,12 +107,14 @@ jobs:
         env:
           TESTS_RESULT: ${{ needs.tests.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
+          LAB_RESULT: ${{ needs.lab.result }}
           BUILD_RESULT: ${{ needs.build.result }}
         run: |
           echo "Testes: $TESTS_RESULT"
           echo "Seguranca: $SECURITY_RESULT"
+          echo "Laboratorio: $LAB_RESULT"
           echo "Docker: $BUILD_RESULT"
-          if [[ "$TESTS_RESULT" != "success" || "$SECURITY_RESULT" != "success" || "$BUILD_RESULT" != "success" ]]; then
+          if [[ "$TESTS_RESULT" != "success" || "$SECURITY_RESULT" != "success" || "$BUILD_RESULT" != "success" || "$LAB_RESULT" != "success" ]]; then
             exit 1
           fi
           echo "CI aprovado."

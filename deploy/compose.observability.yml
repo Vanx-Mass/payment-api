@@ -1,0 +1,53 @@
+services:
+  gateway:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      GATEWAY_LEDGER_PATH: /ledger/payments.sqlite
+      RECONCILIATION_TOKEN: ${RECONCILIATION_TOKEN:-lab-reconciliation}
+    volumes:
+      - gateway_ledger:/ledger
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+  prometheus:
+    image: prom/prometheus:v3.5.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --enable-feature=exemplar-storage
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+  grafana:
+    image: grafana/grafana:12.3.3
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+  collector:
+    image: otel/opentelemetry-collector:0.147.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./observability/collector.yml:/etc/otelcol/config.yml:ro
+  tempo:
+    image: grafana/tempo:2.9.1
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+  loki:
+    image: grafana/loki:3.6.3
+    command: ["-config.file=/etc/loki.yml"]
+    volumes:
+      - ./observability/loki.yml:/etc/loki.yml:ro
+volumes:
+  gateway_ledger:
+  prometheus_data:

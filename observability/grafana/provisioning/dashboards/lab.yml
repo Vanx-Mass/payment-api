@@ -1,0 +1,6 @@
+apiVersion: 1
+providers:
+  - name: Payment Lab
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

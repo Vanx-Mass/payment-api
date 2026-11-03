@@ -59,6 +59,8 @@ async def checar_limite(chave: str, limite: int, janela_segundos: int) -> dict:
 # ─── Middleware — por IP ──────────────────────────
 
 async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path.rstrip("/") == "/metrics":
+        return await call_next(request)
     ip = request.client.host if request.client else "desconhecido"
 
     info = await checar_limite(

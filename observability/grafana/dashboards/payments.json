@@ -1,0 +1,142 @@
+{
+  "title": "Payment API · laboratório",
+  "uid": "payment-lab",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Serviço",
+        "type": "custom",
+        "query": "api,gateway",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requisições por segundo",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, route) (rate(payment_http_requests_total{service=~\"$service\",route!~\"/health|/openapi.json\"}[1m]))",
+          "refId": "A",
+          "exemplar": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Respostas 5xx por minuto",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (service, route) (increase(payment_http_requests_total{service=~\"$service\",status=~\"5..\"}[1m]))",
+          "refId": "A",
+          "exemplar": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latência p95 de pagamentos e gateway",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service, route) (rate(payment_http_duration_seconds_bucket{service=~\"$service\",route=~\"/pagamentos|/processar\",method=\"POST\"}[1m])))",
+          "refId": "A",
+          "exemplar": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Pagamentos gravados por resultado",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (increase(payment_committed_total[5m]))",
+          "refId": "A",
+          "exemplar": false
+        }
+      ]
+    }
+  ]
+}
