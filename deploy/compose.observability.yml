@@ -17,7 +17,7 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ../observability/prometheus:/etc/prometheus:ro
+      - ./observability/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
   grafana:
     image: grafana/grafana:12.3.3
@@ -30,23 +30,24 @@ services:
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
     volumes:
-      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
   collector:
     image: otel/opentelemetry-collector:0.147.0
     command: ["--config=/etc/otelcol/config.yml"]
     volumes:
-      - ../observability/collector.yml:/etc/otelcol/config.yml:ro
+      - ./observability/collector.yml:/etc/otelcol/config.yml:ro
   tempo:
     image: grafana/tempo:2.9.1
     command: ["-config.file=/etc/tempo.yml"]
     volumes:
-      - ../observability/tempo.yml:/etc/tempo.yml:ro
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
   loki:
     image: grafana/loki:3.6.3
     command: ["-config.file=/etc/loki.yml"]
     volumes:
-      - ../observability/loki.yml:/etc/loki.yml:ro
+      - ./observability/loki.yml:/etc/loki.yml:ro
 volumes:
   gateway_ledger:
   prometheus_data:

@@ -14,7 +14,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       PYTHONPATH: /opt/airflow/dags
     volumes:
-      - ../orchestration/dags:/opt/airflow/dags:ro
+      - ./orchestration/dags:/opt/airflow/dags:ro
       - airflow_state:/opt/airflow
     depends_on:
       db:

@@ -15,4 +15,4 @@ tenacity             # retry com backoff exponencial
 httpx                # cliente HTTP assíncrono (processador externo)
 aiosqlite
 prometheus-client==0.22.1
-opentelemetry-exporter-otlp-proto-http==1.41.0
+opentelemetry-exporter-otlp-proto-http==1.45.2
