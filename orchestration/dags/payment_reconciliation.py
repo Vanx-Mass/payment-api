@@ -4,6 +4,7 @@ from pathlib import Path
 import pendulum
 from airflow.exceptions import AirflowFailException
 from airflow.sdk import dag, get_current_context, task
+from airflow.timetables.interval import CronDataIntervalTimetable
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -12,7 +13,7 @@ import reconciliation as data
 
 @dag(
     dag_id="payment_reconciliation",
-    schedule="0 0 * * *",
+    schedule=CronDataIntervalTimetable("0 0 * * *", timezone="UTC"),
     start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,

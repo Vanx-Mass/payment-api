@@ -87,7 +87,14 @@ def incident():
             trace_id = sample["labels"]["trace_id"]
 
             def trace():
-                return get(GRAFANA, f"/api/datasources/proxy/uid/tempo/api/traces/{trace_id}")
+                document = get(GRAFANA, f"/api/datasources/proxy/uid/tempo/api/traces/{trace_id}")
+                services = {
+                    attribute["value"].get("stringValue")
+                    for batch in document.get("batches", document.get("resourceSpans", []))
+                    for attribute in batch["resource"]["attributes"]
+                    if attribute["key"] == "service.name"
+                }
+                return document if {"api", "gateway"} <= services else None
 
             def logs():
                 streams = get(
@@ -99,16 +106,9 @@ def incident():
                     return streams
                 return None
 
-            trace_data = eventually(trace)
-            services = {
-                attribute["value"].get("stringValue")
-                for batch in trace_data.get("batches", trace_data.get("resourceSpans", []))
-                for attribute in batch["resource"]["attributes"]
-                if attribute["key"] == "service.name"
+            evidence = {
+                "alerts": alerts, "exemplar": sample, "trace": eventually(trace), "logs": eventually(logs),
             }
-            if not {"api", "gateway"} <= services:
-                raise RuntimeError(f"Trace incompleto: {sorted(services)}")
-            evidence = {"alerts": alerts, "exemplar": sample, "trace": trace_data, "logs": eventually(logs)}
         finally:
             gateway_mode("success")
 
