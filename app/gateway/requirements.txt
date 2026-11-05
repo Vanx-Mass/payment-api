@@ -1,4 +1,4 @@
 fastapi
 uvicorn[standard]
-prometheus-client==0.22.1
+prometheus-client==0.26.0
 opentelemetry-exporter-otlp-proto-http==1.45.2
